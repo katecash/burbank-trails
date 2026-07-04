@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Burbank Trails">
+    <meta name="theme-color" content="#111111">
+    <title>Burbank Trails</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        html, body {
+            height: 100%;
+            height: 100dvh;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+            background: #111;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #map {
+            position: absolute;
+            inset: 0;
+        }
+
+        /* ---- Stats bar ---- */
+        #stats-bar {
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            background: rgba(10, 10, 10, 0.82);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            padding: 14px 16px 12px;
+            padding-top: max(14px, env(safe-area-inset-top));
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .stat { text-align: center; }
+
+        .stat-value {
+            font-size: 30px;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            color: #4ade80;
+            line-height: 1;
+            letter-spacing: -0.5px;
+        }
+
+        .stat-label {
+            font-size: 10px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: rgba(255,255,255,0.4);
+            margin-top: 3px;
+        }
+
+        .stat-sep {
+            width: 1px;
+            height: 36px;
+            background: rgba(255,255,255,0.1);
+        }
+
+        /* ---- Controls ---- */
+        #controls {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            padding-bottom: max(24px, env(safe-area-inset-bottom));
+            background: rgba(10,10,10,0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-top: 1px solid rgba(255,255,255,0.08);
+        }
+
+        #btn-start {
+            flex: 1;
+            height: 58px;
+            border: none;
+            border-radius: 29px;
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            background: #4ade80;
+            color: #052010;
+            transition: transform 0.15s, background 0.2s;
+        }
+
+        #btn-start.running {
+            background: #ef4444;
+            color: #fff;
+        }
+
+        #btn-start:active { transform: scale(0.96); }
+
+        .ctrl-btn {
+            width: 56px;
+            height: 56px;
+            border: none;
+            border-radius: 28px;
+            background: rgba(255,255,255,0.12);
+            color: #fff;
+            font-size: 22px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.15s;
+            flex-shrink: 0;
+        }
+
+        .ctrl-btn:active { transform: scale(0.92); }
+
+        /* ---- GPS badge ---- */
+        #gps-badge {
+            position: absolute;
+            top: 108px;
+            right: 12px;
+            z-index: 1000;
+            background: rgba(0,0,0,0.65);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border-radius: 10px;
+            padding: 4px 9px;
+            font-size: 11px;
+            font-weight: 600;
+            color: rgba(255,255,255,0.6);
+            pointer-events: none;
+        }
+
+        /* ---- Waiting overlay ---- */
+        #gps-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 3000;
+            background: rgba(0,0,0,0.88);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 18px;
+            display: none;
+        }
+
+        #gps-overlay.show { display: flex; }
+
+        #gps-overlay h2 { font-size: 20px; font-weight: 700; }
+        #gps-overlay p  { font-size: 14px; color: rgba(255,255,255,0.5); text-align: center; padding: 0 32px; }
+
+        .spinner {
+            width: 52px; height: 52px;
+            border: 4px solid rgba(74,222,128,0.2);
+            border-top-color: #4ade80;
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ---- History panel ---- */
+        #history-panel {
+            position: absolute;
+            inset: 0;
+            z-index: 2000;
+            background: #0d0d0d;
+            flex-direction: column;
+            display: none;
+        }
+
+        #history-panel.open { display: flex; }
+
+        #history-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px 14px;
+            padding-top: max(16px, env(safe-area-inset-top));
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        #history-top h2 { font-size: 20px; font-weight: 700; }
+
+        #btn-close {
+            background: none;
+            border: none;
+            color: #4ade80;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 8px 4px;
+        }
+
+        #run-list {
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            padding: 12px 16px;
+        }
+
+        .run-card {
+            background: #1c1c1e;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 10px;
+        }
+
+        .run-date {
+            font-size: 12px;
+            color: rgba(255,255,255,0.38);
+            margin-bottom: 10px;
+        }
+
+        .run-stats { display: flex; gap: 24px; }
+
+        .run-stat-val {
+            font-size: 24px;
+            font-weight: 700;
+            color: #4ade80;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .run-stat-lbl {
+            font-size: 11px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 2px;
+        }
+
+        .no-runs {
+            text-align: center;
+            color: rgba(255,255,255,0.35);
+            padding: 60px 20px;
+            font-size: 15px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="stats-bar">
+    <div class="stat">
+        <div class="stat-value" id="val-dist">0.00</div>
+        <div class="stat-label">km</div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat">
+        <div class="stat-value" id="val-time">0:00</div>
+        <div class="stat-label">time</div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat">
+        <div class="stat-value" id="val-pace">--:--</div>
+        <div class="stat-label">min/km</div>
+    </div>
+    <div class="stat-sep"></div>
+    <div class="stat">
+        <div class="stat-value" id="val-speed">0.0</div>
+        <div class="stat-label">km/h</div>
+    </div>
+</div>
+
+<div id="gps-badge">GPS...</div>
+
+<div id="controls">
+    <button class="ctrl-btn" onclick="openHistory()" title="Past runs">📋</button>
+    <button id="btn-start" onclick="toggleRun()">START RUN</button>
+    <button class="ctrl-btn" onclick="centreMap()" title="My location">📍</button>
+</div>
+
+<div id="gps-overlay" class="show">
+    <div class="spinner"></div>
+    <h2>Finding you...</h2>
+    <p>Make sure Location Services is enabled for your browser in iPhone Settings.</p>
+</div>
+
+<div id="history-panel">
+    <div id="history-top">
+        <h2>Past Runs</h2>
+        <button id="btn-close" onclick="closeHistory()">Done</button>
+    </div>
+    <div id="run-list"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ---- Config ---------------------------------------------------------------
+// Centre point: Alperton Road, Burbank QLD 4156
+const CENTRE = [-27.585, 153.135];
+const ZOOM   = 16;
+
+// ---- Map ------------------------------------------------------------------
+const map = L.map('map', {
+    center: CENTRE,
+    zoom: ZOOM,
+    zoomControl: true,
+    attributionControl: true
+});
+
+// Standard OSM tiles — shows walking tracks, paths, and trails
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+    maxNativeZoom: 19
+}).addTo(map);
+
+// ---- State ----------------------------------------------------------------
+let running   = false;
+let watchId   = null;
+let startedAt = null;
+let timer     = null;
+let totalDist = 0;       // metres
+let lastPos   = null;
+let route     = [];
+let currentLatLng = null;
+
+let posMarker    = null;
+let accCircle    = null;
+let routeLine    = null;
+
+// ---- GPS marker -----------------------------------------------------------
+const myIcon = L.divIcon({
+    className: '',
+    html: `<div style="width:18px;height:18px;background:#4ade80;border:3px solid white;
+                border-radius:50%;box-shadow:0 2px 10px rgba(0,0,0,0.5)"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9]
+});
+
+// ---- GPS ------------------------------------------------------------------
+function startWatching() {
+    if (!navigator.geolocation) {
+        alert('GPS is not available on this browser.');
+        return;
+    }
+    watchId = navigator.geolocation.watchPosition(onPos, onPosErr, {
+        enableHighAccuracy: true,
+        maximumAge: 1500,
+        timeout: 15000
+    });
+}
+
+function onPos(p) {
+    const { latitude: lat, longitude: lon, accuracy: acc, speed } = p.coords;
+    currentLatLng = [lat, lon];
+
+    // Update GPS badge
+    const badge = document.getElementById('gps-badge');
+    badge.textContent = `±${Math.round(acc)}m`;
+    badge.style.color = acc < 20 ? '#4ade80' : acc < 50 ? '#fbbf24' : '#f87171';
+
+    // Place/move marker
+    if (!posMarker) {
+        posMarker = L.marker([lat, lon], { icon: myIcon, zIndexOffset: 1000 }).addTo(map);
+        map.setView([lat, lon], ZOOM);
+        document.getElementById('gps-overlay').classList.remove('show');
+    } else {
+        posMarker.setLatLng([lat, lon]);
+    }
+
+    // Accuracy ring
+    if (accCircle) accCircle.remove();
+    accCircle = L.circle([lat, lon], {
+        radius: acc,
+        color: '#4ade80',
+        fillColor: '#4ade80',
+        fillOpacity: 0.07,
+        weight: 1,
+        interactive: false
+    }).addTo(map);
+
+    if (!running) return;
+
+    // Only log point if accuracy is reasonable (< 50m)
+    if (acc > 50) return;
+
+    if (lastPos) {
+        const d = haversine(lastPos[0], lastPos[1], lat, lon);
+        // Filter noise: only count if moved > 3m
+        if (d >= 3) {
+            totalDist += d;
+            document.getElementById('val-dist').textContent = (totalDist / 1000).toFixed(2);
+            lastPos = [lat, lon];
+
+            route.push([lat, lon]);
+            if (routeLine) routeLine.remove();
+            if (route.length > 1) {
+                routeLine = L.polyline(route, {
+                    color: '#ef4444',
+                    weight: 4,
+                    opacity: 0.9,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                }).addTo(map);
+            }
+        }
+    } else {
+        lastPos = [lat, lon];
+        route.push([lat, lon]);
+    }
+
+    // Speed from GPS
+    if (speed !== null && speed > 0.3) {
+        document.getElementById('val-speed').textContent = (speed * 3.6).toFixed(1);
+    }
+
+    // Auto-follow while running
+    map.panTo([lat, lon], { animate: true, duration: 0.5 });
+}
+
+function onPosErr(err) {
+    document.getElementById('gps-badge').textContent = 'No GPS';
+    console.warn('GPS error', err.code, err.message);
+}
+
+// ---- Run controls ---------------------------------------------------------
+function toggleRun() {
+    running ? stopRun() : startRun();
+}
+
+function startRun() {
+    if (!currentLatLng) {
+        document.getElementById('gps-overlay').classList.add('show');
+        const wait = setInterval(() => {
+            if (currentLatLng) {
+                clearInterval(wait);
+                document.getElementById('gps-overlay').classList.remove('show');
+                startRun();
+            }
+        }, 600);
+        return;
+    }
+
+    running   = true;
+    startedAt = Date.now();
+    totalDist = 0;
+    lastPos   = currentLatLng.slice();
+    route     = [currentLatLng.slice()];
+
+    document.getElementById('btn-start').textContent = 'STOP RUN';
+    document.getElementById('btn-start').classList.add('running');
+    document.getElementById('val-dist').textContent  = '0.00';
+    document.getElementById('val-time').textContent  = '0:00';
+    document.getElementById('val-pace').textContent  = '--:--';
+    document.getElementById('val-speed').textContent = '0.0';
+
+    timer = setInterval(tick, 1000);
+}
+
+function stopRun() {
+    running = false;
+    clearInterval(timer);
+
+    document.getElementById('btn-start').textContent = 'START RUN';
+    document.getElementById('btn-start').classList.remove('running');
+
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+
+    if (totalDist > 50) {
+        saveRun(totalDist, elapsed, route);
+        const km  = (totalDist / 1000).toFixed(2);
+        alert(`Run saved!\n\n${km} km  ·  ${fmtTime(elapsed)}`);
+    }
+}
+
+function tick() {
+    const elapsed = Math.round((Date.now() - startedAt) / 1000);
+    document.getElementById('val-time').textContent = fmtTime(elapsed);
+
+    if (totalDist > 100) {
+        const ps  = elapsed / (totalDist / 1000);
+        const pm  = Math.floor(ps / 60);
+        const ps2 = Math.round(ps % 60);
+        document.getElementById('val-pace').textContent = `${pm}:${String(ps2).padStart(2,'0')}`;
+    }
+}
+
+// ---- Map centre -----------------------------------------------------------
+function centreMap() {
+    const target = currentLatLng || CENTRE;
+    map.setView(target, ZOOM);
+}
+
+// ---- Persistence ----------------------------------------------------------
+function saveRun(dist, dur, pts) {
+    const all = JSON.parse(localStorage.getItem('bt-runs') || '[]');
+    // Thin points to max 300 to keep storage small
+    const step = Math.ceil(pts.length / 300);
+    const thin = pts.filter((_, i) => i % step === 0);
+    all.unshift({ date: new Date().toISOString(), dist: Math.round(dist), dur, pts: thin });
+    localStorage.setItem('bt-runs', JSON.stringify(all.slice(0, 100)));
+}
+
+function openHistory() {
+    const panel = document.getElementById('history-panel');
+    const list  = document.getElementById('run-list');
+    const all   = JSON.parse(localStorage.getItem('bt-runs') || '[]');
+
+    list.innerHTML = all.length === 0
+        ? `<div class="no-runs">No runs saved yet.<br>Tap Start Run and head out!</div>`
+        : all.map(r => {
+            const d   = new Date(r.date);
+            const ds  = d.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
+            const ts  = d.toLocaleTimeString('en-AU', { hour:'2-digit', minute:'2-digit' });
+            const km  = (r.dist / 1000).toFixed(2);
+            let pace  = '--:--';
+            if (r.dist > 100) {
+                const ps = r.dur / (r.dist / 1000);
+                pace = `${Math.floor(ps/60)}:${String(Math.round(ps%60)).padStart(2,'0')}`;
+            }
+            return `<div class="run-card">
+                <div class="run-date">${ds} &middot; ${ts}</div>
+                <div class="run-stats">
+                    <div><div class="run-stat-val">${km}</div><div class="run-stat-lbl">km</div></div>
+                    <div><div class="run-stat-val">${fmtTime(r.dur)}</div><div class="run-stat-lbl">time</div></div>
+                    <div><div class="run-stat-val">${pace}</div><div class="run-stat-lbl">min/km</div></div>
+                </div>
+            </div>`;
+        }).join('');
+
+    panel.classList.add('open');
+}
+
+function closeHistory() {
+    document.getElementById('history-panel').classList.remove('open');
+}
+
+// ---- Haversine (metres) ---------------------------------------------------
+function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const f1 = lat1 * Math.PI / 180, f2 = lat2 * Math.PI / 180;
+    const df = (lat2 - lat1) * Math.PI / 180;
+    const dl = (lon2 - lon1) * Math.PI / 180;
+    const a  = Math.sin(df/2)**2 + Math.cos(f1)*Math.cos(f2)*Math.sin(dl/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function fmtTime(s) {
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2,'0')}`;
+}
+
+// ---- Boot -----------------------------------------------------------------
+startWatching();
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+</script>
+</body>
+</html>
